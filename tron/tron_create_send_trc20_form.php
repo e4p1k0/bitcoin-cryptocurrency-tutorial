@@ -1,4 +1,8 @@
 <?php 
+ini_set('error_reporting', E_ALL);
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+ini_set('memory_limit', '-1');
 use IEXBase\TronAPI\Tron;
 use IEXBase\TronAPI\Support;
 use Web3\Contracts\Ethabi;
@@ -29,18 +33,21 @@ define("TRX_TO_SUN",'1000000');
 define("SUN_TO_TRX", '0.000001');
 
 $supportChains = ['main'=>"Tron Mainnet", 'shasta'=>"Shasta Testnet"];
+$generate_way = filter_input(INPUT_POST, 'generate_way', FILTER_SANITIZE_STRING);
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
 		
-		$feeLimit = $_POST['fee_limit'];
-		$feeLimitInSun = bcmul($feeLimit, TRX_TO_SUN);
-		
-		if (!is_numeric($feeLimit) OR $feeLimit <= 0) {
-			throw new Exception('fee_limit is required.');
-		} else if($feeLimit > 1000) {
-            throw new Exception('fee_limit must not be greater than 1000 TRX.');
-		}
+		if ($generate_way !== 'Offline signature') {
+            $feeLimit = $_POST['fee_limit'];
+            $feeLimitInSun = bcmul($feeLimit, TRX_TO_SUN);
+
+            if (!is_numeric($feeLimit) OR $feeLimit <= 0) {
+                throw new Exception('fee_limit is required.');
+            } else if($feeLimit > 1000) {
+                throw new Exception('fee_limit must not be greater than 1000 TRX.');
+            }
+        }
 
 		if ($_POST['chain'] == 'main') {
 			$fullNode = new \IEXBase\TronAPI\Provider\HttpProvider('https://api.trongrid.io');
@@ -54,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 		
 		$tron = new \IEXBase\TronAPI\Tron($fullNode, $solidityNode, $eventServer);
 		
-		if ($_POST['generate_way'] == 'Generate Offline') {
+		if ($generate_way == 'Generate Offline') {
 			//[GENERATE ENCODED DATA FOR TOKEN CONTRACT]
 			$ethAbi = new Ethabi(['address' => new Address,'bool' => new Boolean,'bytes' => new Bytes,'dynamicBytes' => new DynamicBytes,'int' => new Integer,'string' => new Str,'uint' => new Uinteger,]);
 			
@@ -69,13 +76,27 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			
 			//[GENERATE CONTRACT'S SERIALIZED HEX]
 			//get owner address from private key
-			$privKeyFactory = new PrivateKeyFactory();
-			$privateKey = $privKeyFactory->fromHexUncompressed($_POST['privkey']);
-			$publicKey  = $privateKey->getPublicKey();
-			$publicKeyHex = substr($publicKey->getHex(), 2);
-			
-			$ownerAddressHex = Keccak::hash(hex2bin($publicKeyHex), 256);
-			$ownerAddressHex = "41" . substr($ownerAddressHex, -40);
+			$address = filter_input(INPUT_POST, 'address', FILTER_SANITIZE_STRING);
+			if (! $address) {
+			    ?> <div class="alert alert-success">
+                    No address provided, try to work with private key
+                </div> <?php
+                $privKeyFactory = new PrivateKeyFactory();
+                $privateKey = $privKeyFactory->fromHexUncompressed($_POST['privkey']);
+                $publicKey  = $privateKey->getPublicKey();
+                $publicKeyHex = substr($publicKey->getHex(), 2);
+                $ownerAddressHex = Keccak::hash(hex2bin($publicKeyHex), 256);
+                $ownerAddressHex = "41" . substr($ownerAddressHex, -40);
+
+			} else {
+			    ?> <div class="alert alert-success">
+                    Address provided, private key is not needed
+                </div> <?php
+			    $ownerAddressHex = base58check2HexString($address);
+			    if (! $ownerAddressHex) {
+                    throw new Exception("Address is invalid");
+			    }
+			}
 			
 			$ownerAddressBin = hex2str($ownerAddressHex);
 			$contractAddressBin = hex2str(base58check2HexString($_POST['contract_addr']));
@@ -97,11 +118,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			
 			//[GENERATE RAW TX]
 			//get current block
-			$newestBlock = $tron->getCurrentBlock();
-			$currentHeight = (int)$newestBlock['block_header']['raw_data']['number'];
-			if ($currentHeight<=0) {
-				throw new Exception("Fail retrieve current block.");
-			}
+			$currentHeight = filter_input(INPUT_POST, 'height', FILTER_VALIDATE_INT);
+
+			if (! $currentHeight) {
+			    ?> <!-- <div class="alert alert-success">
+                    No offline, because height is not selected
+                </div> --> <?php
+                $newestBlock = $tron->getCurrentBlock();
+                $currentHeight = (int)$newestBlock['block_header']['raw_data']['number'];
+                if ($currentHeight<=0) {
+                    throw new Exception("Fail retrieve current block.");
+                }
+            }
 			
 			//get last confirmed block
 			$confirmation = 20;
@@ -125,14 +153,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			$raw->setRefBlockHash( hex2Str( $refBlockHash =  substr($blockHash, 16, 16) ));
 			$raw->setTimestamp($currentTimeMillis);
 			$raw->setExpiration( $blockTs + (10 * 60 * 60 * 1000) );#expiration set 10 hours from last confirmed block
-			$txId = hash("sha256", $raw->serializeToString());
 			$rawData = str2hex($raw->serializeToString());
+			$txId = hash("sha256", $raw->serializeToString());
 			
 			$tx = new \Protocol\Transaction();
 			$tx->setRawData($raw);
 			
-			$signature = Support\Secp::sign($txId, $_POST['privkey']);
-			$tx->setSignature([hex2str( $signature )]);
+            $noSubscribe = filter_input(INPUT_POST, 'no_subscribe', FILTER_VALIDATE_INT);
+			if ($noSubscribe == 1) {
+			    ?><div class="alert alert-success">
+                    No subscribe due to selected option
+                </div><?php
+			} else {
+			   $signature = Support\Secp::sign($txId, $_POST['privkey']);
+               $tx->setSignature([hex2str( $signature )]);
+			}
 			
 			?>
 			<div class="alert alert-success">
@@ -142,7 +177,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 				
 				<h6 class="mt-3">Raw Data (Hex)</h6>
 				<textarea class="form-control" rows="5" id="comment" readonly><?php echo $rawData;?></textarea>
-				<small>To sign manually, you may access to <a href="tron_sign_raw_data.php">Tron Sign Raw Data</a> page.</small>
 				
 				<h6 class="mt-3">Contract Serialized Hex</h6>
 				<textarea class="form-control" rows="5" id="comment" readonly><?php echo str2hex($contract->serializeToString());?></textarea>
@@ -157,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 				<input class="form-control" readonly value="<?php echo $txId?>"/>
 			</div>
 			<?Php
-		} else {
+		} elseif ($generate_way == 'Generate By Trongrid') {
 			
 			$tokenAmount = bcmul($_POST['token_amount'], bcpow("10", $_POST['token_decimals'], 0), 0);
 			$function = "transfer";
@@ -191,7 +225,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			
 			$newTx = new \Protocol\Transaction();
 			$parsedRaw =  new \Protocol\Transaction\Raw();
-			$parsedRaw->mergeFromString(hex2str($rawData = $mutatedTx['raw_data_hex']));
+			$parsedRaw->mergeFromString(hex2str($mutatedTx['raw_data_hex']));
 
 			$newTx->setRawData($parsedRaw);
 			$signature = Support\Secp::sign($mutatedTx['txID'], $_POST['privkey']);
@@ -205,10 +239,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 				
 				<h6 class="mt-3">Raw Tx (Hex)</h6>
 				<textarea class="form-control" rows="5" id="comment" readonly><?php echo str2hex($newTx->serializeToString());?></textarea>
-				
-				<h6 class="mt-3">Raw Data (Hex)</h6>
-				<textarea class="form-control" rows="5" id="comment" readonly><?php echo $rawData;?></textarea>
-				<small>To sign manually, you may access to <a href="tron_sign_raw_data.php">Tron Sign Raw Data</a> page.</small>
 
 				<h6 class="mt-3">TX Hash</h6>
 				<input class="form-control" readonly value="<?php echo $mutatedTx['txID']?>"/>
@@ -217,12 +247,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 		}
 	
     } catch (Exception $e) {
+        if (! isset($errmsg)) {
+            $errmsg = '';
+        }
         $errmsg .= "Problem found. " . $e->getMessage();
 
     }
 } 
 
-if ($errmsg) {
+if (isset($errmsg)) {
 ?>
     <div class="alert alert-danger">
         <strong>Error!</strong> <?php echo $errmsg?>
@@ -247,7 +280,7 @@ if ($errmsg) {
 		<label for="fee_limit">Fee Limit:</label>
 		
 		<div class="input-group mb-3">
-			<input class="form-control" type='text' name='fee_limit' id='fee_limit' value='<?php echo $_POST['fee_limit']?>'>
+			<input class="form-control" type='text' name='fee_limit' id='fee_limit' value='<?php filter_input(INPUT_POST, 'fee_limit', FILTER_SANITIZE_STRING)?>'>
 			<div class="input-group-append">
 			  <span class="input-group-text">TRX</span>
 			</div>
@@ -257,30 +290,40 @@ if ($errmsg) {
 	
     <div class="form-group">
         <label for="contract_addr">To:</label>
-        <input placeholder="Token's Contract Address" class="form-control" type='text' name='contract_addr' id='contract_addr' value='<?php echo $_POST['contract_addr']?>'>
+        <input placeholder="Token's Contract Address" class="form-control" type='text' name='contract_addr' id='contract_addr' value='<?php filter_input(INPUT_POST, 'contract_addr', FILTER_SANITIZE_STRING)?>'>
     </div>
 	
 	<div class="form-group">
         <label for="token_amount">Send Token Amount:</label>
-        <input class="form-control" type='text' name='token_amount' id='token_amount' value='<?php echo $_POST['token_amount']?>'>
+        <input class="form-control" type='text' name='token_amount' id='token_amount' value='<?php filter_input(INPUT_POST, 'token_amount', FILTER_SANITIZE_STRING)?>'>
     </div>
 	
 	
 	<div class="form-group">
         <label for="token_decimals">Token Decimal Places:</label>
-        <input class="form-control" type='text' name='token_decimals' id='token_decimals' value='<?php echo $_POST['token_decimals']?>'>
+        <input class="form-control" type='text' name='token_decimals' id='token_decimals' value='<?php filter_input(INPUT_POST, 'token_decimals', FILTER_SANITIZE_STRING)?>'>
     </div>
 	
 	<div class="form-group">
         <label for="recipient">Recipient:</label>
-        <input class="form-control" type='text' name='recipient' id='recipient' value='<?php echo $_POST['recipient']?>'>
+        <input class="form-control" type='text' name='recipient' id='recipient' value='<?php filter_input(INPUT_POST, 'recipient', FILTER_SANITIZE_STRING)?>'>
     </div>
    
      <div class="form-group">
-        <label for="privkey">From:</label>
-        <input placeholder="Sender's Private Key (Hex)" class="form-control" type='text' name='privkey' id='privkey' value='<?php echo $_POST['privkey']?>'>
+        <label for="privkey">From (Private key):</label>
+        <br><i>No need if address is provided and "Do Not Sign" is selected</i>
+        <input placeholder="Sender's Private Key (Hex)" class="form-control" type='text' name='privkey' id='privkey' value='<?php filter_input(INPUT_POST, 'privkey', FILTER_SANITIZE_STRING)?>'>
     </div>
-   
+
+     <div class="form-group">
+        <label for="address">From (address):</label>
+        <input placeholder="Owner`s address" class="form-control" type='text' name='address' id='address' value='<?php filter_input(INPUT_POST, 'address', FILTER_SANITIZE_STRING)?>'>
+    </div>
+     <div class="form-group">
+        <label for="no_subscribe">Do Not Sign</label>
+        <input type='checkbox' name='no_subscribe' id='no_subscribe' value='1'>
+    </div>
+
     <input type='submit' class="btn btn-success" name="generate_way" value="Generate Offline"/>
 	
 	<input type='submit' class="btn btn-success" name="generate_way" value="Generate By Trongrid"/>
