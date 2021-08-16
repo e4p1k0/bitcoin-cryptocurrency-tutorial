@@ -89,19 +89,29 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 		$raw->setExpiration( $blockTs + ((int)$_POST['expiration'] * 1000) );
 		
 		$txId = hash("sha256", $raw->serializeToString());
-		
+		$rawData = str2hex($raw->serializeToString());
 		$tx = new \Protocol\Transaction();
 		$tx->setRawData($raw);
 		
-		$signature = Support\Secp::sign($txId, $_POST['privkey']);
-		$tx->setSignature([hex2str( $signature )]);
-	
+		$noSubscribe = filter_input(INPUT_POST, 'no_subscribe', FILTER_VALIDATE_INT);
+		if ($noSubscribe == 1) {
+		    ?><div class="alert alert-success">
+                Transaction isn`t signed due to selected option
+            </div><?php
+		} else {
+			$signature = Support\Secp::sign($txId, $_POST['privkey']);
+			$tx->setSignature([hex2str( $signature )]);
+		}
+		
     ?>
         <div class="alert alert-success">
-			<h6 class="mt-3">Raw Tx Hex</h6>
-			<textarea class="form-control" rows="5" id="comment" readonly><?php echo str2hex($tx->serializeToString());?></textarea>
-			
-			
+			<?php if ($noSubscribe != 1) {?>
+				<h6 class="mt-3">Raw Tx Hex</h6>
+				<textarea class="form-control" rows="5" id="comment" readonly><?php echo str2hex($tx->serializeToString());?></textarea>
+			<?php } ?>
+			<h6 class="mt-3">Raw Data (Hex)</h6>
+			<textarea class="form-control" rows="5" id="comment" readonly><?php echo $rawData;?></textarea>
+
 			<h6 class="mt-3">Tx Byte Size</h6>
 			<input class="form-control" rows="5" id="comment" readonly value="<?php echo $tx->byteSize();?>"></textarea>
 			
@@ -175,7 +185,10 @@ if ($errmsg) {
         <label for="privkey">Private Key:</label>
         <input class="form-control" type='text' name='privkey' id='privkey' value='<?php echo $_POST['privkey']?>'>
     </div>
-   
+	<div class="form-group">
+        <label for="no_subscribe">Do Not Sign</label>
+        <input type='checkbox' name='no_subscribe' id='no_subscribe' value='1'>
+    </div>
     <input type='submit' class="btn btn-success btn-block"/>
 </form>
 <?php

@@ -1,4 +1,7 @@
 <?php
+ini_set('error_reporting', E_ALL);
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
 $_HTML['title'] = 'Tron Create Send TRC20 Tx';
 $_HTML['meta']['keywords'] = "Tron Create Send TRC20 Transaction,Tron Create Send TRC20 Transaction In PHP,PHP";
 include_once "../common.php";

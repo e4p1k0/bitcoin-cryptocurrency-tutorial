@@ -1,4 +1,4 @@
-<?php 
+ <?php
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -37,7 +37,7 @@ $generate_way = filter_input(INPUT_POST, 'generate_way', FILTER_SANITIZE_STRING)
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     try {
-		
+
 		if ($generate_way !== 'Offline signature') {
             $feeLimit = $_POST['fee_limit'];
             $feeLimitInSun = bcmul($feeLimit, TRX_TO_SUN);
@@ -48,7 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new Exception('fee_limit must not be greater than 1000 TRX.');
             }
         }
-
 		if ($_POST['chain'] == 'main') {
 			$fullNode = new \IEXBase\TronAPI\Provider\HttpProvider('https://api.trongrid.io');
 			$solidityNode = new \IEXBase\TronAPI\Provider\HttpProvider('https://api.trongrid.io');
@@ -97,11 +96,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     throw new Exception("Address is invalid");
 			    }
 			}
-			
+
 			$ownerAddressBin = hex2str($ownerAddressHex);
+
 			$contractAddressBin = hex2str(base58check2HexString($_POST['contract_addr']));
 			$callValue = "0";
-			
+
 			$contract = new \Protocol\Transaction\Contract();
 			$triggerSmartContract = new \Protocol\TriggerSmartContract();
 			
@@ -130,7 +130,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     throw new Exception("Fail retrieve current block.");
                 }
             }
-			
 			//get last confirmed block
 			$confirmation = 20;
 			$targetHeight = ($currentHeight - $confirmation) + 1;
@@ -168,7 +167,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			   $signature = Support\Secp::sign($txId, $_POST['privkey']);
                $tx->setSignature([hex2str( $signature )]);
 			}
-			
 			?>
 			<div class="alert alert-success">
 		   
@@ -177,7 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 				
 				<h6 class="mt-3">Raw Data (Hex)</h6>
 				<textarea class="form-control" rows="5" id="comment" readonly><?php echo $rawData;?></textarea>
-				
+
 				<h6 class="mt-3">Contract Serialized Hex</h6>
 				<textarea class="form-control" rows="5" id="comment" readonly><?php echo str2hex($contract->serializeToString());?></textarea>
 				
@@ -226,7 +224,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			$newTx = new \Protocol\Transaction();
 			$parsedRaw =  new \Protocol\Transaction\Raw();
 			$parsedRaw->mergeFromString(hex2str($mutatedTx['raw_data_hex']));
-
+			
 			$newTx->setRawData($parsedRaw);
 			$signature = Support\Secp::sign($mutatedTx['txID'], $_POST['privkey']);
 			$newTx->setSignature([hex2str( $signature )]);
@@ -325,7 +323,6 @@ if (isset($errmsg)) {
     </div>
 
     <input type='submit' class="btn btn-success" name="generate_way" value="Generate Offline"/>
-	
 	<input type='submit' class="btn btn-success" name="generate_way" value="Generate By Trongrid"/>
 </form>
 <?php
